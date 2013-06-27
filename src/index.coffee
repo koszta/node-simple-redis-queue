@@ -31,8 +31,13 @@ class RedisQueue extends EventEmitter
           return @emit 'error',
           new RedisQueueError "Bad number of replies from redis #{replies.length}"
 
-        @emit 'message', replies[0], JSON.parse(replies[1]), (err) =>
-          @emit 'error', err if err?
+        queueKeys = replies[0]
+        data = JSON.parse(replies[1])
+        @emit 'message', queueKeys, data, (err) =>
+          if err?
+            @emit 'error', err, queueKeys, data
+          else
+            @emit 'success', queueKeys, data
           @monitor keysToMonitor...
 
   clear: (queueKeys...) ->
@@ -44,15 +49,20 @@ class RedisQueue extends EventEmitter
       # sends false as err argument, ignore it
       callback()
 
-class Worker
+class Worker extends EventEmitter
   constructor: (@queueKeys, @tasks, conn, callback = ->) ->
     @queue = new RedisQueue conn, (err) =>
       return callback err if err?
       @queue.on 'message', (queueKeys, data, callback) =>
+        @emit 'job', this, arguments...
         try
           @perform data, callback
         catch e
           callback e
+      @queue.on 'error', =>
+        @emit 'error', this, arguments...
+      @queue.on 'success', =>
+        @emit 'success', this, arguments...
       @queue.monitor @queueKeys
       callback null, this
 

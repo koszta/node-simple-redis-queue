@@ -14,7 +14,7 @@ describe 'RedisQueue', ->
           return done err if err?
           try
             redisQueue.should.equal q
-            redisQueue.conn.connected.should.be.true
+            redisQueue.conn.connected.should.equal true
             redisQueue.stop done
           catch e
             done e
@@ -27,7 +27,7 @@ describe 'RedisQueue', ->
         , (err, q) ->
           try
             redisQueue.should.equal q
-            redisQueue.conn.connected.should.be.true
+            redisQueue.conn.connected.should.equal true
             err.should.not.be.null
             redisQueue.stop done
           catch e
@@ -35,20 +35,24 @@ describe 'RedisQueue', ->
 
   context 'connected', ->
     redisQueue = null
+    pushRedisQueue = null
     beforeEach (done) ->
       client = redis.createClient()
       client.flushall ->
         redisQueue = new RedisQueue client
+        pushClient = redis.createClient()
+        pushRedisQueue = new RedisQueue pushClient
         done()
 
     afterEach (done) ->
-      redisQueue.stop done
+      redisQueue.stop ->
+        pushRedisQueue.stop done
 
     it 'should receive a pushed job on the monitored queues', (done) ->
       redisQueue.on 'message', (queue, data) ->
         done()
-      redisQueue.push 'test-queue', 'this is a test'
       redisQueue.monitor 'test-queue'
+      pushRedisQueue.push 'test-queue', 'this is a test'
 
     it 'should receive a string payload correctly', (done) ->
       redisQueue.on 'message', (queue, data) ->
@@ -57,8 +61,8 @@ describe 'RedisQueue', ->
           done()
         catch e
           done e
-      redisQueue.push 'test-queue', 'this is a test'
       redisQueue.monitor 'test-queue'
+      pushRedisQueue.push 'test-queue', 'this is a test'
 
     it 'should receive an object payload correctly', (done) ->
       redisQueue.on 'message', (queue, data) ->
@@ -67,8 +71,8 @@ describe 'RedisQueue', ->
           done()
         catch e
           done e
-      redisQueue.push 'test-queue', {message: 'this is a test'}
       redisQueue.monitor 'test-queue'
+      pushRedisQueue.push 'test-queue', {message: 'this is a test'}
 
     it 'should receive an array payload correctly', (done) ->
       redisQueue.on 'message', (queue, data) ->
@@ -77,14 +81,14 @@ describe 'RedisQueue', ->
           done()
         catch e
           done e
-      redisQueue.push 'test-queue', ['this is a test']
       redisQueue.monitor 'test-queue'
+      pushRedisQueue.push 'test-queue', ['this is a test']
 
     it 'should not receive tasks from other queues', (done) ->
       redisQueue.on 'message', (queue, data) ->
         done new Error 'it received message'
-      redisQueue.push 'not-test-queue', 'this is a test'
       redisQueue.monitor 'test-queue'
+      pushRedisQueue.push 'not-test-queue', 'this is a test'
       setTimeout ->
         done()
       , 50
@@ -94,9 +98,9 @@ describe 'RedisQueue', ->
       redisQueue.on 'message', (queue, data) ->
         called++
         done new Error 'it received task while not done' if called >= 2
-      redisQueue.push 'test-queue', 'this is a test'
-      redisQueue.push 'test-queue', 'this is an other test'
       redisQueue.monitor 'test-queue'
+      pushRedisQueue.push 'test-queue', 'this is a test'
+      pushRedisQueue.push 'test-queue', 'this is an other test'
       setTimeout ->
         done()
       , 50
@@ -107,12 +111,9 @@ describe 'RedisQueue', ->
         called++
         done() if called >= 2
         callback()
-      redisQueue.push 'test-queue', 'this is a test'
-      redisQueue.push 'test-queue', 'this is an other test'
       redisQueue.monitor 'test-queue'
-      setTimeout ->
-        done()
-      , 50
+      pushRedisQueue.push 'test-queue', 'this is a test'
+      pushRedisQueue.push 'test-queue', 'this is an other test'
 
     context 'with 2 consumers', ->
       redisQueue2 = null
@@ -143,10 +144,10 @@ describe 'RedisQueue', ->
             client2Called = true
             if clientCalled
               done()
-        redisQueue.push 'test-queue', 'this is a test'
-        redisQueue.push 'test-queue', 'this is an other test'
         redisQueue.monitor 'test-queue'
         redisQueue2.monitor 'test-queue'
+        pushRedisQueue.push 'test-queue', 'this is a test'
+        pushRedisQueue.push 'test-queue', 'this is an other test'
 
       it 'should not send task for disconnected client', (done) ->
         called = 0
@@ -213,7 +214,55 @@ describe 'RedisQueue', ->
               try
                 data.should.equal 'something'
               catch e
-                return done e
+                done e
               worker.stop done
           , redis.createClient()
+          redisQueue.enqueue 'test-queue', 'test', ['something']
+
+        it 'emits job if task is received', (done) ->
+          worker = new Worker 'test-queue',
+            test: (data, callback) ->
+          , redis.createClient()
+          worker.on 'job', (w, queueKeys, data) ->
+            try
+              worker.should.equal w
+              queueKeys.should.equal 'test-queue'
+              data[0].should.equal 'test'
+              data[1][0].should.equal 'something'
+              worker.stop done
+            catch e
+              done e
+          redisQueue.enqueue 'test-queue', 'test', ['something']
+
+        it 'emits success if task is done', (done) ->
+          worker = new Worker 'test-queue',
+            test: (data, callback) ->
+              callback()
+          , redis.createClient()
+          worker.on 'success', (w, queueKeys, data) ->
+            try
+              worker.should.equal w
+              queueKeys.should.equal 'test-queue'
+              data[0].should.equal 'test'
+              data[1][0].should.equal 'something'
+              worker.stop done
+            catch e
+              done e
+          redisQueue.enqueue 'test-queue', 'test', ['something']
+
+        it 'emits error if callback is called with non-null', (done) ->
+          worker = new Worker 'test-queue',
+            test: (data, callback) ->
+              callback false
+          , redis.createClient()
+          worker.on 'error', (w, err, queueKeys, data) ->
+            try
+              worker.should.equal w
+              queueKeys.should.equal 'test-queue'
+              data[0].should.equal 'test'
+              data[1][0].should.equal 'something'
+              err.should.equal false
+              worker.stop done
+            catch e
+              done e
           redisQueue.enqueue 'test-queue', 'test', ['something']
