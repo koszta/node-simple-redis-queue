@@ -5,10 +5,13 @@ class RedisQueueError extends Error
 
 class RedisQueue extends EventEmitter
   constructor: (conn, callback = ->) ->
+    @quiting = false
+    @timeout = 60
     if conn.connected
       @conn = conn
       callback null, this
     else
+      @timeout = conn.timeout if conn.timeout?
       @conn = redis.createClient conn.port, conn.host
       @conn.once 'connect', =>
         if conn.password?
@@ -24,9 +27,12 @@ class RedisQueue extends EventEmitter
     @push queueKeys, [taskType, payload]
 
   monitor: (keysToMonitor...) ->
-    @conn.brpop keysToMonitor..., 0, (err, replies) =>
+    return if @quiting
+    @conn.brpop keysToMonitor..., @timeout, (err, replies) =>
       try
         return @emit 'error', err if err?
+        return @monitor keysToMonitor... unless replies?
+        return @conn.lpush replies... if @quiting
         if replies.length != 2
           return @emit 'error',
           new RedisQueueError "Bad number of replies from redis #{replies.length}"
@@ -44,10 +50,9 @@ class RedisQueue extends EventEmitter
     @conn.del queueKeys...
 
   stop: (callback = ->) ->
-    @conn.end()
-    @conn.stream.once 'close', ->
-      # sends false as err argument, ignore it
-      callback()
+    @quiting = true
+    @conn.once 'end', callback
+    @conn.quit()
 
 class Worker extends EventEmitter
   constructor: (@queueKeys, @tasks, conn, callback = ->) ->

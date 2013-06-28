@@ -5,6 +5,30 @@ Worker = RedisQueue.Worker
 
 describe 'RedisQueue', ->
   describe 'constructor', ->
+    it 'can set timeout', (done) ->
+      redisQueue = new RedisQueue
+        host: '127.0.0.1'
+        port: 6379
+        timeout: 1
+      , (err, q) ->
+        return done err if err?
+        try
+          redisQueue.timeout.should.equal 1
+          redisQueue.stop done
+        catch e
+          done e
+    it 'sets the timeout to 60s by default', (done) ->
+      redisQueue = new RedisQueue
+        host: '127.0.0.1'
+        port: 6379
+      , (err, q) ->
+        return done err if err?
+        try
+          redisQueue.timeout.should.equal 60
+          redisQueue.stop done
+        catch e
+          done e
+
     context 'called without password', ->
       it 'can connect if connection details given instead of connection', (done) ->
         redisQueue = new RedisQueue
@@ -40,6 +64,7 @@ describe 'RedisQueue', ->
       client = redis.createClient()
       client.flushall ->
         redisQueue = new RedisQueue client
+        redisQueue.timeout = 1
         pushClient = redis.createClient()
         pushRedisQueue = new RedisQueue pushClient
         done()
@@ -120,12 +145,7 @@ describe 'RedisQueue', ->
 
       beforeEach ->
         redisQueue2 = new RedisQueue redis.createClient()
-
-      afterEach (done) ->
-        if redisQueue2.conn.connected
-          redisQueue2.stop done
-        else
-          done()
+        redisQueue2.timeout = 1
 
       it 'should distribute tasks between them', (done) ->
         clientCalled = false
@@ -136,20 +156,21 @@ describe 'RedisQueue', ->
           else
             clientCalled = true
             if client2Called
-              done()
+              redisQueue2.stop done
         redisQueue2.on 'message', (queue, data) ->
           if client2Called
             done new Error 'the same client received both tasks'
           else
             client2Called = true
             if clientCalled
-              done()
+              redisQueue2.stop done
         redisQueue.monitor 'test-queue'
         redisQueue2.monitor 'test-queue'
         pushRedisQueue.push 'test-queue', 'this is a test'
         pushRedisQueue.push 'test-queue', 'this is an other test'
 
       it 'should not send task for disconnected client', (done) ->
+        @timeout 4000
         called = 0
         redisQueue3 = new RedisQueue redis.createClient()
         redisQueue.on 'message', (queue, data, callback) ->
@@ -163,7 +184,7 @@ describe 'RedisQueue', ->
         redisQueue2.stop ->
           redisQueue3.push 'test-queue', 'this is a test'
           redisQueue3.push 'test-queue', 'this is an other test'
-          redisQueue3.stop done
+          redisQueue3.stop()
 
   describe 'Worker', ->
     describe 'constructor', ->
@@ -174,6 +195,7 @@ describe 'RedisQueue', ->
           ,
             host: '127.0.0.1'
             port: 6379
+            timeout: 1
           , (err, w) ->
             return done err if err?
             try
