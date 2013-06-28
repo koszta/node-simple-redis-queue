@@ -4,9 +4,14 @@ EventEmitter = require('events').EventEmitter
 class RedisQueueError extends Error
 
 class RedisQueue extends EventEmitter
-  constructor: (conn, callback = ->) ->
+  constructor: (conn, timeoutOrCallback, callback = ->) ->
     @quiting = false
-    @timeout = 60
+    if typeof timeoutOrCallback == 'function'
+      callback = timeoutOrCallback
+    if typeof timeoutOrCallback == 'number'
+      @timeout = timeoutOrCallback
+    else
+      @timeout = 60
     if conn.connected
       @conn = conn
       callback null, this
@@ -55,8 +60,13 @@ class RedisQueue extends EventEmitter
     @conn.quit()
 
 class Worker extends EventEmitter
-  constructor: (@queueKeys, @tasks, conn, callback = ->) ->
-    @queue = new RedisQueue conn, (err) =>
+  constructor: (@queueKeys, @tasks, conn, timeoutOrCallback, callback = ->) ->
+    args = [conn]
+    if typeof timeoutOrCallback == 'function'
+      callback = timeoutOrCallback
+    else if typeof timeoutOrCallback == 'number'
+      args.push timeoutOrCallback
+    args.push (err) =>
       return callback err if err?
       @queue.on 'message', (queueKeys, data, callback) =>
         @emit 'job', this, arguments...
@@ -70,6 +80,7 @@ class Worker extends EventEmitter
         @emit 'success', this, arguments...
       @queue.monitor @queueKeys
       callback null, this
+    @queue = new RedisQueue args...
 
   stop: (callback = ->) ->
     @queue.stop callback

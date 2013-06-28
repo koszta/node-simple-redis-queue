@@ -9,7 +9,7 @@ describe 'RedisQueue', ->
       redisQueue = new RedisQueue
         host: '127.0.0.1'
         port: 6379
-        timeout: 1
+      , 1
       , (err, q) ->
         return done err if err?
         try
@@ -63,8 +63,7 @@ describe 'RedisQueue', ->
     beforeEach (done) ->
       client = redis.createClient()
       client.flushall ->
-        redisQueue = new RedisQueue client
-        redisQueue.timeout = 1
+        redisQueue = new RedisQueue client, 1
         pushClient = redis.createClient()
         pushRedisQueue = new RedisQueue pushClient
         done()
@@ -144,8 +143,7 @@ describe 'RedisQueue', ->
       redisQueue2 = null
 
       beforeEach ->
-        redisQueue2 = new RedisQueue redis.createClient()
-        redisQueue2.timeout = 1
+        redisQueue2 = new RedisQueue redis.createClient(), 1
 
       it 'should distribute tasks between them', (done) ->
         clientCalled = false
@@ -170,9 +168,7 @@ describe 'RedisQueue', ->
         pushRedisQueue.push 'test-queue', 'this is an other test'
 
       it 'should not send task for disconnected client', (done) ->
-        @timeout 4000
         called = 0
-        redisQueue3 = new RedisQueue redis.createClient()
         redisQueue.on 'message', (queue, data, callback) ->
           called++
           done() if called >= 2
@@ -182,9 +178,8 @@ describe 'RedisQueue', ->
         redisQueue.monitor 'test-queue'
         redisQueue2.monitor 'test-queue'
         redisQueue2.stop ->
-          redisQueue3.push 'test-queue', 'this is a test'
-          redisQueue3.push 'test-queue', 'this is an other test'
-          redisQueue3.stop()
+          pushRedisQueue.push 'test-queue', 'this is a test'
+          pushRedisQueue.push 'test-queue', 'this is an other test'
 
   describe 'Worker', ->
     describe 'constructor', ->
@@ -195,7 +190,7 @@ describe 'RedisQueue', ->
           ,
             host: '127.0.0.1'
             port: 6379
-            timeout: 1
+          , 1
           , (err, w) ->
             return done err if err?
             try
@@ -212,6 +207,7 @@ describe 'RedisQueue', ->
             host: '127.0.0.1'
             port: 6379
             password: 'blabla'
+          , 1
           , (err, w) ->
             try
               worker.queue.conn.connected.should.be.true
@@ -239,12 +235,14 @@ describe 'RedisQueue', ->
                 done e
               worker.stop done
           , redis.createClient()
+          , 1
           redisQueue.enqueue 'test-queue', 'test', ['something']
 
         it 'emits job if task is received', (done) ->
           worker = new Worker 'test-queue',
             test: (data, callback) ->
           , redis.createClient()
+          , 1
           worker.on 'job', (w, queueKeys, data) ->
             try
               worker.should.equal w
@@ -261,6 +259,7 @@ describe 'RedisQueue', ->
             test: (data, callback) ->
               callback()
           , redis.createClient()
+          , 1
           worker.on 'success', (w, queueKeys, data) ->
             try
               worker.should.equal w
@@ -277,6 +276,7 @@ describe 'RedisQueue', ->
             test: (data, callback) ->
               callback false
           , redis.createClient()
+          , 1
           worker.on 'error', (w, err, queueKeys, data) ->
             try
               worker.should.equal w

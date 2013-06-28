@@ -20,7 +20,7 @@ module.exports = (grunt) ->
     # Mocha tests
     simplemocha:
       options:
-        timeout: 2000
+        timeout: 4000
         ignoreLeaks: false
         reporter: 'spec'
       all:
